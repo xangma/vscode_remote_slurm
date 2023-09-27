@@ -65,15 +65,15 @@ else
 
         # Cleanup on exit
         # TODO: learn more about this so it can cancel on exit etc.
-        trap 'rm -f "$tmpfile"' EXIT
+        trap 'rm -f "$tmpfile"; cancel_existing_jobs' EXIT
 
         # Format the commands vscode wanted to run.
         stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
 
         # Run the commands on the remote host
-        exec $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
+        $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
     else
         # Execute the SSH command normally without resource allocation
-        exec $SSH_BINARY "$@"
+        $SSH_BINARY "$@"
     fi
 fi
