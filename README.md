@@ -1,9 +1,20 @@
 # vscode_remote_slurm
-Helper script for executing commands before connecting to remote.
+Helper script for executing commands before connecting to vscode remote. This can be used to run vscode remote on the compute node of a slurm cluster.
+
+### How I have been able to get this working:  
+- Put the ssh_wrapper.sh script somewhere.
+- Make sure it's executable: `chmod +x ssh_wrapper.sh`
+- Change vscode to run this instead of your default ssh binary.
+- Create a host entry in your ssh_config (example below) with a RemoteCommand detailing your resources.
+- Hope it works?
+
+### TODO:  
+- *IMPORTANT*: Put condition at the top of the script to run this conditionally based on a string in the hostname or salloc in the remote command or something.  
+- Wrap into extension so it runs this script on a button press instead of changing vscode to only use this script for ssh.
 
 
 Notes:
-I am using this on a Mac M1 connecting to a Slurm Cluster.
+I am using this on a Mac M1 connecting to a Slurm Cluster. It hasn't been tested on anything else yet.
 
 
 These are my Remote SSH settings:
