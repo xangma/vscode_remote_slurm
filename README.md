@@ -9,6 +9,16 @@ Conditionally wraps the ssh command if `salloc` is in the RemoteCommand. Passes 
 - Create a host entry in your ssh_config (example below) with a RemoteCommand detailing your resources.
 - Hope it works?
 
+### How it works
+The script:
+
+- Pretends to be ssh and intercepts the ssh commands sent from vscode,
+- Uses salloc to reserve resources on the cluster (currently set in the RemoteCommand in the ssh_config),
+- Figures out where those resources are,
+- Proxyjumps through the login node and runs bash within the Slurm allocation using srun,
+- Allows vscode to continue to send its commands to the bash shell on the compute node to run the remote server.
+
+
 ### TODO:  
 - Wrap into extension so it runs this script on a button press instead of changing vscode to only use this script for ssh.
 
