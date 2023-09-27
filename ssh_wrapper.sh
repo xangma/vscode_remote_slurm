@@ -37,12 +37,7 @@ else
     # vscode will be running ssh with these args:
     # "-v -T -D port -o ConnectTimeout=60 remotehost"
 
-    # Read stdin into a temp file
-    tmpfile=$(mktemp)
 
-    while read -t 1 line; do
-        echo "$line" >> $tmpfile
-    done
 
     # Extract the port number from vscode's ssh args.
     PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
@@ -53,20 +48,32 @@ else
     # Use the remote host to extract the ssh config
     extract_ssh_config $REMOTE_HOST
 
-    # Cancel any existing jobs
-    cancel_existing_jobs
+    if [[ "$REMOTE_COMMAND" == *"salloc"* ]]; then
 
-    # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
-    allocate_resources
+        # Read stdin into a temp file
+        tmpfile=$(mktemp)
 
-    # Cleanup on exit
-    # TODO: learn more about this so it can cancel on exit etc.
-    trap 'rm -f "$tmpfile"' EXIT
+        while read -t 1 line; do
+            echo "$line" >> $tmpfile
+        done
 
-    # Format the commands vscode wanted to run.
-    stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
+        # Cancel any existing jobs
+        cancel_existing_jobs
 
-    # Run the commands on the remote host
-    exec $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
+        # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
+        allocate_resources
 
+        # Cleanup on exit
+        # TODO: learn more about this so it can cancel on exit etc.
+        trap 'rm -f "$tmpfile"' EXIT
+
+        # Format the commands vscode wanted to run.
+        stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
+
+        # Run the commands on the remote host
+        exec $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
+    else
+        # Execute the SSH command normally without resource allocation
+        exec $SSH_BINARY "$@"
+    fi
 fi
