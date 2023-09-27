@@ -1,110 +1,72 @@
 #!/bin/bash
 
-PARENTPID=$$
-GPARENTPID=$(ps -o ppid= -p $PARENTPID)
-#echo "ParentPID: $PARENTPID"
-#echo "GParentPID: $GPARENTPID"
-
-# Ensure SSH binary path is correct
 SSH_BINARY="/opt/homebrew/bin/ssh"
 SSH_CONFIG_FILE="$HOME/.ssh/ssh_config"
 
 function extract_ssh_config {
-  local host=$1
-  REMOTE_USERNAME=$(ssh -G $host | awk '/^user / { print $2 }')
-  HOSTNAME=$(ssh -G $host | awk '/^hostname / { print $2 }')
-  REMOTE_COMMAND=$(ssh -G $host | awk '/^remotecommand / { $1=""; print $0 }')
-  IDENTITYFILE=$(ssh -G $host | awk '/^identityfile / { print $2 }')
-  JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '-J\s[a-zA-Z]+' | awk '{print $2}' )
-}
-
-function wait_for_job {
-  local jobname=$1
-  local delay=$2
-  local max_attempts=$3
-  local attempt=0
-  
-  while ((attempt < max_attempts)); do
-    # Fetch the job ID and node for the running job with the given name
-#    read -r jobid node < <(ssh -o ControlPath=~/.ssh/cm_socket_%r@%h-%p "$REMOTE_USERNAME@$HOSTNAME" squeue --name="$jobname" --states=R -h -O JobID,Nodelist | awk '{print $1, $2}')
-    read -r jobid node < <(ssh -i $IDENTITYFILE "$REMOTE_USERNAME@$HOSTNAME" squeue --name="$jobname" --states=R -h -O JobID,Nodelist | awk '{print $1, $2}')
-    
-    if [[ -n "$jobid" && -n "$node" ]]; then
-      echo "Job is running. JobID: $jobid, Node: $node"
-      JOBID="$jobid"
-      NODE="$node"
-      break
-    fi
-    
-    sleep "$delay"
-    ((attempt++))
-  done
-  
-  if ((attempt == max_attempts)); then
-    echo "Job did not start running within the specified attempts. Exiting."
-    exit 1
-  fi
-}
-
-function setup_control_master {
-  rm ~/.ssh/cm_socket_$REMOTE_USERNAME@$HOSTNAME-22
-  $SSH_BINARY -fN -o ControlMaster=yes -o ControlPersist=yes -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME
+    local host=$1
+    REMOTE_USERNAME=$($SSH_BINARY -G $host | awk '/^user / { print $2 }')
+    HOSTNAME=$($SSH_BINARY -G $host | awk '/^hostname / { print $2 }')
+    REMOTE_COMMAND=$($SSH_BINARY -G $host | awk '/^remotecommand / { $1=""; print $0 }')
+    IDENTITYFILE=$($SSH_BINARY -G $host | awk '/^identityfile / { print $2 }')
+    JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '-J\s[a-zA-Z]+' | awk '{print $2}' )
 }
 
 function cancel_existing_jobs {
-#  $SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME scancel --jobname $JOB_NAME
-  $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --jobname $JOB_NAME
+    $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --jobname $JOB_NAME
 }
 
 function allocate_resources {
-#  $SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND
-  { ALLOC_OUTPUT=$($SSH_BINARY -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
-#  echo "Got alloc output: $ALLOC_OUTPUT"
-  JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation \d+" | awk '{print $NF}')
-#  echo "Recieved JobID: $JOBID"
-  NODE=$($SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
-#  echo "Got node: $NODE"
+    # Allocate resources using slurm
+    # The end part that looks like someone mashed their keyboard came from this SO post:
+    # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
+    { ALLOC_OUTPUT=$($SSH_BINARY -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
+    
+    # Extract the job id
+    JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation \d+" | awk '{print $NF}')
+    
+    # Extract the node name
+    NODE=$($SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
+    #  echo "Got node: $NODE"
 }
 
 if [[ "$1" == "-V" ]]; then
-  # Execute the original ssh command for version check
-  $SSH_BINARY "$@"
+    # Execute the original ssh command for version check
+    $SSH_BINARY "$@"
 else
+    # vscode will be running ssh with these args:
+    # "-v -T -D port -o ConnectTimeout=60 remotehost"
 
-  tmpfile=$(mktemp)
+    # Read stdin into a temp file
+    tmpfile=$(mktemp)
 
-    
-  while read -t 1 line; do
+    while read -t 1 line; do
         echo "$line" >> $tmpfile
-  done
+    done
 
-  # Extract the port number
-  PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
-  
-  # Extract the remote host
-  REMOTE_HOST=$(echo "$@" | awk '{print $NF}')
+    # Extract the port number from vscode's ssh args.
+    PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
 
-  # Extract ssh config details
-  extract_ssh_config $REMOTE_HOST
+    # Extract the remote host too
+    REMOTE_HOST=$(echo "$@" | awk '{print $NF}')
 
-  # Setup Control Master
-#  echo "# Setup Control Master"
-#  setup_control_master
+    # Use the remote host to extract the ssh config
+    extract_ssh_config $REMOTE_HOST
 
-  cancel_existing_jobs
+    # Cancel any existing jobs
+    cancel_existing_jobs
 
-  # Allocate resources using slurm
-  #echo "# Allocate resources using slurm"
-  allocate_resources
- 
-  #wait_for_job "$JOB_NAME" 1 10
+    # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
+    allocate_resources
 
-# Cleanup on exit
-  trap 'rm -f "$tmpfile"' EXIT
+    # Cleanup on exit
+    # TODO: learn more about this so it can cancel on exit etc.
+    trap 'rm -f "$tmpfile"' EXIT
 
-  # Start ssh
-  stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
+    # Format the commands vscode wanted to run.
+    stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
 
-  exec $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
+    # Run the commands on the remote host
+    exec $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
 
 fi
