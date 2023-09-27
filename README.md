@@ -14,8 +14,8 @@ Conditionally wraps the ssh command if `salloc` is in the RemoteCommand. Passes 
 
 
 Notes:
-I am using this on a Mac M1 connecting to a Slurm Cluster. It hasn't been tested on anything else yet.
-
+I have tested this on a Mac M1 connecting to a Centos 7 Slurm Cluster. Vscode Insiders v1.83 and Remote - SSH v0.106.4.  
+It hasn't been tested on anything else yet.  
 
 These are my Remote SSH settings:
 ```
