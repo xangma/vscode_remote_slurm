@@ -45,7 +45,7 @@ function allocate_resources {
     fi
 
     # Extract the job id
-    JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation \d+" | awk '{print $NF}')
+    JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation [0-9]+" | awk '{print $NF}')
     if [[ $DEBUGMODE == 1 ]]; then
         echo "JOBID: $JOBID"
     fi
