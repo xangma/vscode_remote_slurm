@@ -50,7 +50,7 @@ function allocate_resources {
         echo "JOBID: $JOBID"
     fi
     # Extract the node name
-    NODE=$($SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
+    NODE=$($SSH_BINARY $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
     if [[ $DEBUGMODE == 1 ]]; then
         echo "NODE: $NODE"
     fi
