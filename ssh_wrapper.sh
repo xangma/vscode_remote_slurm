@@ -2,7 +2,7 @@
 
 SSH_BINARY="/opt/homebrew/bin/ssh"
 SSH_CONFIG_FILE="$HOME/.ssh/ssh_config"
-DEBUGMODE=0
+DEBUGMODE=1
 
 function extract_ssh_config {
     local host=$1
@@ -11,7 +11,7 @@ function extract_ssh_config {
     REMOTE_COMMAND=$($SSH_BINARY -G $host | awk '/^remotecommand / { $1=""; print $0 }')
     IDENTITYFILE=$($SSH_BINARY -G $host | awk '/^identityfile / { print $2 }')
     JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '-J\s[a-zA-Z]+' | awk '{print $2}' )
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "REMOTE_USERNAME: $REMOTE_USERNAME"
         echo "HOSTNAME: $HOSTNAME"
         echo "REMOTE_COMMAND: $REMOTE_COMMAND"
@@ -21,11 +21,11 @@ function extract_ssh_config {
 }
 
 function cancel_existing_jobs {
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelling existing jobs"
     fi
     $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --jobname $JOB_NAME
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelled existing jobs"
     fi
 }
@@ -35,19 +35,19 @@ function allocate_resources {
     # The end part that looks like someone mashed their keyboard came from this SO post:
     # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
 
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "Allocating resources..."
     fi
     { ALLOC_OUTPUT=$($SSH_BINARY -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
     # Extract the job id
     JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation \d+" | awk '{print $NF}')
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "JOBID: $JOBID"
     fi
     # Extract the node name
     NODE=$($SSH_BINARY -o ControlPath=~/.ssh/cm_socket_%r@%h-%p $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "NODE: $NODE"
     fi
 }
@@ -62,14 +62,14 @@ else
     # Extract the port number from vscode's ssh args.
     PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
 
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "PORT: $PORT"
     fi
 
     # Extract the remote host too
     REMOTE_HOST=$(echo "$@" | awk '{print $NF}')
 
-    if DEBUGMODE; then
+    if [[ $DEBUGMODE == 1 ]]; then
         echo "REMOTE_HOST: $REMOTE_HOST"
     fi
 
@@ -99,7 +99,7 @@ else
         stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
 
         # Run the commands on the remote host
-        if DEBUGMODE; then
+        if [[ $DEBUGMODE == 1 ]]; then
             echo "Running commands on remote host"
             echo $stdin_commands
         fi
