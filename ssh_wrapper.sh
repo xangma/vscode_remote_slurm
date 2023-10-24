@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SSH_BINARY="/opt/homebrew/bin/ssh"
+SSH_BINARY=$(which ssh)
 SSH_CONFIG_FILE="$HOME/.ssh/ssh_config"
 DEBUGMODE=1
 
