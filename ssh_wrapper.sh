@@ -40,6 +40,10 @@ function allocate_resources {
     fi
     { ALLOC_OUTPUT=$($SSH_BINARY -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
+    if [[ $DEBUGMODE == 1 ]]; then
+        echo $ALLOC_OUTPUT
+    fi
+
     # Extract the job id
     JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation \d+" | awk '{print $NF}')
     if [[ $DEBUGMODE == 1 ]]; then
