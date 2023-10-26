@@ -10,7 +10,7 @@ function extract_ssh_config {
     HOSTNAME=$($SSH_BINARY -G $host | awk '/^hostname / { print $2 }')
     REMOTE_COMMAND=$($SSH_BINARY -G $host | awk '/^remotecommand / { $1=""; print $0 }')
     IDENTITYFILE=$($SSH_BINARY -G $host | awk '/^identityfile / { print $2 }')
-    JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '-J\s[a-zA-Z]+' | awk '{print $2}' )
+    JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '\-J\s+.*[^\s]+' | awk '{print $2}' )
     if [[ $DEBUGMODE == 1 ]]; then
         echo "REMOTE_USERNAME: $REMOTE_USERNAME"
         echo "HOSTNAME: $HOSTNAME"
