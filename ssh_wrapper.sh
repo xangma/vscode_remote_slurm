@@ -3,6 +3,9 @@
 SSH_BINARY=$(which ssh)
 SSH_CONFIG_FILE="$HOME/.ssh/ssh_config"
 DEBUGMODE=1
+function extract_prefix_and_number {
+    echo "$1" | sed -n -e '/\[/!p' -e 's/\([a-z]*\)\[\([0-9]*\)[,-].*/\1\2/p'
+}
 
 function extract_ssh_config {
     local host=$1
@@ -51,6 +54,7 @@ function allocate_resources {
     fi
     # Extract the node name
     NODE=$($SSH_BINARY $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
+    NODE=$(extract_prefix_and_number $NODE)
     if [[ $DEBUGMODE == 1 ]]; then
         echo "NODE: $NODE"
     fi
