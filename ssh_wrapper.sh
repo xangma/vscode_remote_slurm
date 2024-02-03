@@ -27,7 +27,7 @@ function cancel_existing_jobs {
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelling existing jobs"
     fi
-    $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --jobname $JOB_NAME
+    $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --name $JOB_NAME
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelled existing jobs"
     fi
