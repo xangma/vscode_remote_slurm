@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SSH_BINARY=$(which ssh)
-SSH_CONFIG_FILE="$HOME/.ssh/ssh_config"
+SSH_CONFIG_FILE="$HOME/.ssh/config"
 DEBUGMODE=1
 function extract_prefix_and_number {
     echo "$1" | sed -n -e '/\[/!p' -e 's/\([a-z]*\)\[\([0-9]*\)[,-].*/\1\2/p'
@@ -24,13 +24,22 @@ function extract_ssh_config {
 }
 
 function cancel_existing_jobs {
+        cmd="squeue -h -u $REMOTE_USERNAME --format=\"%.18i %.50j\" | grep -E $JOB_NAME | awk '{if(\$NR>1)print \$1}' | xargs -r scancel"
     if [[ $DEBUGMODE == 1 ]]; then
-        echo "Cancelling existing jobs"
+        echo "Cancelling existing jobs with $JOB_NAME with command $cmd"
     fi
-    $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME scancel --name $JOB_NAME
+    $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $cmd
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelled existing jobs"
     fi
+}
+
+function cleanup {
+    if [[ $DEBUGMODE == 1 ]]; then
+        echo "Cleaning up..."
+    fi
+    rm -f "$tmpfile"
+    cancel_existing_jobs
 }
 
 function allocate_resources {
@@ -101,7 +110,7 @@ else
 
         # Cleanup on exit
         # TODO: learn more about this so it can cancel on exit etc.
-        trap 'rm -f "$tmpfile"; cancel_existing_jobs' EXIT
+        trap cleanup EXIT SIGINT SIGTERM
 
         # Format the commands vscode wanted to run.
         stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
@@ -114,6 +123,10 @@ else
         $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
     else
         # Execute the SSH command normally without resource allocation
+        if [[ $DEBUGMODE == 1 ]]; then
+            echo "Executing SSH command normally"
+            echo $SSH_BINARY "$@"
+        fi
         $SSH_BINARY "$@"
     fi
 fi
