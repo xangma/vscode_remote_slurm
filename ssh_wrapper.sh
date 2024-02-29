@@ -24,7 +24,7 @@ function extract_ssh_config {
 }
 
 function cancel_existing_jobs {
-        cmd="squeue -h -u $REMOTE_USERNAME --format=\"%.18i %.50j\" | grep -E $JOB_NAME | awk '{if(\$NR>1)print \$1}' | xargs -r scancel"
+    cmd="squeue -h -u $REMOTE_USERNAME --format=\"%.18i %.50j\" | grep -E $JOB_NAME | awk '{if(\$NR>1)print \$1}' | xargs -r scancel"
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Cancelling existing jobs with $JOB_NAME with command $cmd"
     fi
@@ -95,6 +95,31 @@ else
 
     if [[ "$REMOTE_COMMAND" == *"salloc"* ]]; then
 
+        # Setup a disowned watcher that waits for the foreground command to exit
+        (
+            echo "Watcher pid: $$"
+            # Define the path for your logfile
+            LOGFILE="/Users/xangma/ssh_wrapper.log"
+            ssh_pid=$(ps -o ppid= -p $$)
+            echo "Foreground ssh command ($ssh_pid) started." > $LOGFILE
+            # Wait for the foreground command to complete
+            while kill -0 $ssh_pid 2>/dev/null; do
+                echo $(kill -0 $ssh_pid) > $LOGFILE
+                echo "Foreground command ($ssh_pid) still running..." > $LOGFILE
+                sleep 1
+            done
+
+            # Once the command completes, perform the desired action
+            echo "Foreground command ($ssh_pid) completed." > $LOGFILE
+
+            # Here you would place any follow-up commands or cleanup actions
+            # Since the task was to kill the process (which should be unnecessary as it's finished), you might:
+            cmd="squeue -h -u $REMOTE_USERNAME --format=\"%.18i %.50j\" | grep -E $JOB_NAME | awk '{if(\$NR>1)print \$1}' | xargs -r scancel"
+            echo "Cancelling existing jobs with $JOB_NAME with command $cmd" > $LOGFILE
+            $SSH_BINARY -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $cmd
+            exit 0
+        ) & disown -h
+
         # Read stdin into a temp file
         tmpfile=$(mktemp)
 
@@ -103,7 +128,7 @@ else
         done
 
         # Cancel any existing jobs
-        cancel_existing_jobs
+        # cancel_existing_jobs
 
         # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
         allocate_resources
