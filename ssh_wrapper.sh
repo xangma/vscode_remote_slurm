@@ -50,10 +50,12 @@ function allocate_resources {
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Allocating resources..."
     fi
+    REMOTE_COMMAND+=" && >&2 echo \"NODE: \$(squeue --user=$REMOTE_USERNAME --name=$JOB_NAME --states=R -h -O Nodelist | awk '{print $1}')\""
     { ALLOC_OUTPUT=$($SSH_BINARY -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
     if [[ $DEBUGMODE == 1 ]]; then
-        echo $ALLOC_OUTPUT
+        echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
+        echo "Here's ALLOC_OUTPUT: $ALLOC_OUTPUT"
     fi
 
     # Extract the job id
@@ -62,7 +64,7 @@ function allocate_resources {
         echo "JOBID: $JOBID"
     fi
     # Extract the node name
-    NODE=$($SSH_BINARY $REMOTE_USERNAME@$HOSTNAME squeue --job=$JOBID --states=R -h -O Nodelist,JobID | awk '{print $1}')
+    NODE=$(echo $ALLOC_OUTPUT | grep -oE "NODE: [a-zA-Z0-9]+" | awk '{print $NF}')
     NODE=$(extract_prefix_and_number $NODE)
     if [[ $DEBUGMODE == 1 ]]; then
         echo "NODE: $NODE"
@@ -145,7 +147,7 @@ else
             echo "Running commands on remote host"
             echo $stdin_commands
         fi
-        $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=60 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
+        $SSH_BINARY -v -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=120 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'$stdin_commands && exec /bin/bash --login'" 
     else
         # Execute the SSH command normally without resource allocation
         if [[ $DEBUGMODE == 1 ]]; then
