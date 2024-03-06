@@ -1,7 +1,5 @@
-# Define strict mode to enforce better coding practices
 # Set-StrictMode -Version Latest
 
-# Equivalent of $(which ssh) in Bash
 $stdin_commands = $input | Out-String
 $SSH_BINARY = Get-Command ssh.exe | Select-Object -ExpandProperty Source
 $SSH_CONFIG_FILE = Join-Path $HOME ".ssh\config"
@@ -49,26 +47,20 @@ Function Cancel-Existing-Jobs {
     }
 }
 
-Function Cleanup {
-    if ($DEBUGMODE) {
-        Write-Host "Cleaning up..."
-    }
-    Remove-Item -Path $tmpfile -Force
-    Cancel-Existing-Jobs
-}
-
 Function Allocate-Resources {
+    # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
+
     if ($DEBUGMODE) {
         Write-Host "Allocating resources..."
     }
+
+    # Extend the salloc remote command to print the allocated node name to stderr after the salloc command completes and a node is assigned. Example: NODE: node1
     $global:REMOTE_COMMAND += " && >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
+
     $all_args = "-i","$global:IDENTITYFILE", "$($global:REMOTE_USERNAME)@$($global:HOSTNAME)", "$global:REMOTE_COMMAND"
     $execCmd = {
         & $using:SSH_BINARY -i $using:global:IDENTITYFILE "$($using:global:REMOTE_USERNAME)@$($using:global:HOSTNAME)" $using:global:REMOTE_COMMAND 2>&1
     }
-
-    # # Invoke the script block and capture its output
-    # $ALLOC_OUTPUT = & $execCmd
 
     # Start the command and store the job object
     $job = Start-Job -ScriptBlock $execCmd
@@ -119,21 +111,33 @@ if ($args[0] -eq "-V") {
     
     # Before checking $REMOTE_COMMAND, ensure it's been properly tried to be set
     if ($null -ne $REMOTE_COMMAND -and $REMOTE_COMMAND -like "*salloc*") {
-        # PowerShell equivalent for watcher logic can be complex due to differences in how process management is handled.
-        
-        # Background job logic for PowerShell can be complex and may not directly map one-to-one with Bash's `disown -h`
-        
+                
         Allocate-Resources
-        
-        # Register cleanup actions
-        # Register-ObjectEvent -InputObject $null -EventName Exiting -Action Cleanup | Out-Null
 
         if ($DEBUGMODE) {
             Write-Host "Running commands on remote host"
             Write-Host $stdin_commands
         }
 
-        & $SSH_BINARY -T -A -i $global:IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=120 -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" srun --overlap --jobid $global:JOBID /bin/bash -c "'ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); (echo `"watching ppid: `$ssh_pid`"; while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; done; scancel $global:JOBID; exit 0) & disown -h && exec /bin/bash --login'"
+        # This is an ssh command that proxy jumps through the remote host to the allocated node and runs srun with:
+        # - the --overlap flag which allows job steps to share all resources, 
+        # - the --jobid flag which specifies the job id to which the step is associated with,
+        # and srun runs bash in the job (required for vscode to talk to the remote) that: 
+        # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
+        # - runs a loop that sleeps for 1 second and checks if the ssh command is still running,
+        # - and if the ssh command is no longer running, it scancels the job and exits.
+        # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
+        # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
+
+        & $SSH_BINARY -T -A -i $global:IDENTITYFILE -D $PORT `
+        -o StrictHostKeyChecking=no -o ConnectTimeout=120 `
+        -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
+        srun --overlap --jobid $global:JOBID /bin/bash -c `
+        "'ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); `
+        (echo `"watching ppid: `$ssh_pid`"; `
+        while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; done; `
+        scancel $global:JOBID; exit 0) & disown -h && exec /bin/bash --login'"
+        
     } else {
         if ($DEBUGMODE) {
             Write-Host "Executing SSH command normally"

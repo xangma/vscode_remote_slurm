@@ -11,10 +11,15 @@ if [[ $DEBUGMODE == 1 ]]; then
 fi
 
 function extract_prefix_and_number {
+    # Extract the prefix and number from a string
+    # Examples:
+    # input: "node[1-2,4-5]" output: "node1"
+    # input: "node1" output: "node1"
     echo "$1" | sed -n -e '/\[/!p' -e 's/\([a-z]*\)\[\([0-9]*\)[,-].*/\1\2/p'
 }
 
 function extract_ssh_config {
+    # Extract certain values from the ssh config for the remote host
     local host=$1
     REMOTE_USERNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^user / { print $2 }')
     HOSTNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^hostname / { print $2 }')
@@ -42,14 +47,23 @@ function cancel_existing_jobs {
 }
 
 function allocate_resources {
-    # Allocate resources using slurm
-    # The end part that looks like someone mashed their keyboard came from this SO post:
-    # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
+    # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
 
     if [[ $DEBUGMODE == 1 ]]; then
         echo "Allocating resources..."
     fi
+
+    # Extend the remote command to print the allocated node name to stderr after the salloc command completes and a node is assigned. Example: NODE: node1
     REMOTE_COMMAND+=" && >&2 echo \"NODE: \$(squeue --user=$REMOTE_USERNAME --name=$JOB_NAME --states=R -h -O Nodelist | awk '{print $1}')\""
+
+    # I think the salloc command prints to stderr, so this is a trick to get the salloc output into a bash variable, and print it to the terminal. 
+    # There is probably a better way to do this.
+    # It redirects stderr to stdout and then redirects stdout to a file descriptor 3, then runs the command, 
+    # then redirects file descriptor 3 to the original stdout and reads the file descriptor 3 into the ALLOC_OUTPUT variable.
+    # 
+    # The end part that looks like someone mashed their keyboard came from this SO post:
+    # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
+
     { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
     if [[ $DEBUGMODE == 1 ]]; then
@@ -76,14 +90,7 @@ if [ "$1" = "-V" ]; then
 else
     # vscode will be running ssh with these args:
     # "-v -T -D port -o ConnectTimeout=60 remotehost"
-        # Read stdin into a temp file
-    tmpfile=$(mktemp)
-
-    while read -t 1 line; do
-        echo "$line" >> $tmpfile
-    done
-
-    stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
+    
     # Extract the port number from vscode's ssh args.
     PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
 
@@ -106,21 +113,47 @@ else
 
     if [[ "$REMOTE_COMMAND" == *"salloc"* ]]; then
 
+        # Read stdin into a temp file
+        tmpfile=$(mktemp)
+
+        while read -t 1 line; do
+            echo "$line" >> $tmpfile
+        done
+
+        stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
+
         # Cancel any existing jobs
         # cancel_existing_jobs
 
         # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
         allocate_resources
 
-        # Format the commands vscode wanted to run.
-        # stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
-
         # Run the commands on the remote host
         # if [[ $DEBUGMODE == 1 ]]; then
         #     echo "Running commands on remote host"
         #     echo $stdin_commands
         # fi
-        $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $IDENTITYFILE -D $PORT -o StrictHostKeyChecking=no -o ConnectTimeout=120 -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE srun --overlap --jobid $JOBID /bin/bash -c "'ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); (echo \"watching ppid: \$ssh_pid\"; while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; done; scancel $JOBID; exit 0) & disown -h && $stdin_commands && exec /bin/bash --login'" 
+
+        # This is an ssh command that proxy jumps through the remote host to the allocated node and runs srun with:
+        # - the --overlap flag which allows job steps to share all resources, 
+        # - the --jobid flag which specifies the job id to which the step is associated with,
+        # and srun runs bash in the job (required for vscode to talk to the remote) that: 
+        # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
+        # - runs a loop that sleeps for 1 second and checks if the ssh command is still running,
+        # - and if the ssh command is no longer running, it scancels the job and exits.
+        # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
+        # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
+
+        $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $IDENTITYFILE -D $PORT \
+        -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
+        -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
+        srun --overlap --jobid $JOBID /bin/bash -c \
+        "'ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
+        (echo \"watching ppid: \$ssh_pid\"; \
+        while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; done; \
+        scancel $JOBID; exit 0) & disown -h && \
+        $stdin_commands && exec /bin/bash --login'" 
+
     else
         # Execute the SSH command normally without resource allocation
         if [[ $DEBUGMODE == 1 ]]; then
