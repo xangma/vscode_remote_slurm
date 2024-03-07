@@ -5,6 +5,8 @@ config_file=".ssh/config"
 SSH_BINARY=$(which ssh)
 SSH_CONFIG_FILE="$HOME/$config_file"
 
+SCANCEL_TIMEOUT=60
+
 if [[ $DEBUGMODE == 1 ]]; then
     echo "SSH_BINARY: $SSH_BINARY"
     echo "SSH_CONFIG_FILE: $SSH_CONFIG_FILE"
@@ -53,8 +55,15 @@ function allocate_resources {
         echo "Allocating resources..."
     fi
 
-    # Extend the remote command to print the allocated node name to stderr after the salloc command completes and a node is assigned. Example: NODE: node1
-    REMOTE_COMMAND+=" && >&2 echo \"NODE: \$(squeue --user=$REMOTE_USERNAME --name=$JOB_NAME --states=R -h -O Nodelist | awk '{print $1}')\""
+    # Extend the remote command to check for the job first, if it doesn't exist, reserve the resources, 
+    # then print the allocated node name to stderr after the salloc command completes and a node is assigned. 
+    # Example: NODE: node1
+    REMOTE_COMMAND="FOUND_JOB=\$(squeue --user=$REMOTE_USERNAME --name=$JOB_NAME --states=R,PD -h -O JobID) && \
+        if [[ ! -z \"\$FOUND_JOB\" ]]; then \
+            >&2 echo \"Job $JOB_NAME already exists. Skipping resource reservation. Granted job allocation \$FOUND_JOB\"; \
+        else \
+            $REMOTE_COMMAND; \
+        fi; >&2 echo \"NODE: \$(squeue --user=$REMOTE_USERNAME --name=$JOB_NAME --states=R -h -O Nodelist | awk '{print \$1}')\""
 
     # I think the salloc command prints to stderr, so this is a trick to get the salloc output into a bash variable, and print it to the terminal. 
     # There is probably a better way to do this.
@@ -66,10 +75,10 @@ function allocate_resources {
 
     { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
-    if [[ $DEBUGMODE == 1 ]]; then
-        echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
-        echo "Here's ALLOC_OUTPUT: $ALLOC_OUTPUT"
-    fi
+    # if [[ $DEBUGMODE == 1 ]]; then
+    #     echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
+    #     echo "Here's ALLOC_OUTPUT: $ALLOC_OUTPUT"
+    # fi
 
     # Extract the job id
     JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation [0-9]+" | awk '{print $NF}')
@@ -139,7 +148,8 @@ else
         # - the --jobid flag which specifies the job id to which the step is associated with,
         # and srun runs bash in the job (required for vscode to talk to the remote) that: 
         # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
-        # - runs a loop that sleeps for 1 second and checks if the ssh command is still running,
+        # - kills any previous watcher processes,
+        # - runs a watcher loop that sleeps for 1 second and checks if the ssh command is still running,
         # - and if the ssh command is no longer running, it scancels the job and exits.
         # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
@@ -148,17 +158,20 @@ else
         -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
         -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
         srun --overlap --jobid $JOBID /bin/bash -c \
-        "'ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
-        (echo \"watching ppid: \$ssh_pid\"; \
+        "'$stdin_commands && \
+        ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
+        pkill -f .WATCHER_VSC_$REMOTE_USERNAME.; \
+        (echo \"WATCHER_VSC_$REMOTE_USERNAME: \$\$\"; \
+        echo \"watching ppid: \$ssh_pid\"; \
         while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; done; \
-        scancel $JOBID; exit 0) & disown -h && \
-        $stdin_commands && exec /bin/bash --login'" 
+        sleep $SCANCEL_TIMEOUT && scancel $JOBID; exit 0) & disown -h && \
+        exec /bin/bash --login'"
 
     else
         # Execute the SSH command normally without resource allocation
         if [[ $DEBUGMODE == 1 ]]; then
             echo "Executing SSH command normally"
-            echo $SSH_BINARY "$@"
+            echo $SSH_BINARY -F $SSH_CONFIG_FILE "$@"
         fi
         $SSH_BINARY -F $SSH_CONFIG_FILE "$@"
     fi

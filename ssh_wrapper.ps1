@@ -4,6 +4,7 @@ $stdin_commands = $input | Out-String
 $SSH_BINARY = Get-Command ssh.exe | Select-Object -ExpandProperty Source
 $SSH_CONFIG_FILE = Join-Path $HOME ".ssh\config"
 $DEBUGMODE = $true
+$SCANCEL_TIMEOUT = 60
 
 Function Extract-Prefix-And-Number {
     Param ([string]$str)
@@ -54,8 +55,15 @@ Function Allocate-Resources {
         Write-Host "Allocating resources..."
     }
 
-    # Extend the salloc remote command to print the allocated node name to stderr after the salloc command completes and a node is assigned. Example: NODE: node1
-    $global:REMOTE_COMMAND += " && >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
+    # Extend the remote command to check for the job first, if it doesn't exist, reserve the resources, 
+    # then print the allocated node name to stderr after the salloc command completes and a node is assigned. 
+    # Example: NODE: node1
+    $global:REMOTE_COMMAND = "FOUND_JOB=`$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R,PD -h -O JobID) && `
+        if [[ ! -z `"`$FOUND_JOB`" ]]; then `
+            echo `"Job $global:JOB_NAME already exists. Skipping resource reservation. Granted job allocation `$FOUND_JOB`"; `
+        else `
+            $global:REMOTE_COMMAND; `
+        fi >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
 
     $all_args = "-i","$global:IDENTITYFILE", "$($global:REMOTE_USERNAME)@$($global:HOSTNAME)", "$global:REMOTE_COMMAND"
     $execCmd = {
@@ -124,7 +132,8 @@ if ($args[0] -eq "-V") {
         # - the --jobid flag which specifies the job id to which the step is associated with,
         # and srun runs bash in the job (required for vscode to talk to the remote) that: 
         # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
-        # - runs a loop that sleeps for 1 second and checks if the ssh command is still running,
+        # - kills any previous watcher processes,
+        # - runs a watcher loop that sleeps for 1 second and checks if the ssh command is still running,
         # - and if the ssh command is no longer running, it scancels the job and exits.
         # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
@@ -134,9 +143,12 @@ if ($args[0] -eq "-V") {
         -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
         srun --overlap --jobid $global:JOBID /bin/bash -c `
         "'ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); `
-        (echo `"watching ppid: `$ssh_pid`"; `
+        pkill -f .WATCHER_VSC_$global:REMOTE_USERNAME.; `
+        (echo `"WATCHER_VSC_$global:REMOTE_USERNAME: `$`$`"; `
+        echo `"watching ppid: `$ssh_pid`"; `
         while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; done; `
-        scancel $global:JOBID; exit 0) & disown -h && exec /bin/bash --login'"
+        sleep $SCANCEL_TIMEOUT && scancel $global:JOBID; exit 0) & disown -h && `
+        exec /bin/bash --login'"
         
     } else {
         if ($DEBUGMODE) {
