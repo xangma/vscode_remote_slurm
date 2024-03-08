@@ -1,6 +1,5 @@
 # Set-StrictMode -Version Latest
 
-$stdin_commands = $input | Out-String
 $SSH_BINARY = Get-Command ssh.exe | Select-Object -ExpandProperty Source
 $SSH_CONFIG_FILE = Join-Path $HOME ".ssh\config"
 $DEBUGMODE = $true
@@ -59,13 +58,12 @@ Function Allocate-Resources {
     # then print the allocated node name to stderr after the salloc command completes and a node is assigned. 
     # Example: NODE: node1
     $global:REMOTE_COMMAND = "FOUND_JOB=`$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R,PD -h -O JobID) && `
-        if [[ ! -z `"`$FOUND_JOB`" ]]; then `
-            echo `"Job $global:JOB_NAME already exists. Skipping resource reservation. Granted job allocation `$FOUND_JOB`"; `
-        else `
-            $global:REMOTE_COMMAND; `
-        fi >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
+    if [[ ! -z `"`$FOUND_JOB`" ]]; then `
+        >&2 echo `"Job $global:JOB_NAME already exists. Skipping resource reservation. Granted job allocation `$FOUND_JOB`"; `
+    else `
+        $global:REMOTE_COMMAND; `
+    fi; >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
 
-    $all_args = "-i","$global:IDENTITYFILE", "$($global:REMOTE_USERNAME)@$($global:HOSTNAME)", "$global:REMOTE_COMMAND"
     $execCmd = {
         & $using:SSH_BINARY -i $using:global:IDENTITYFILE "$($using:global:REMOTE_USERNAME)@$($using:global:HOSTNAME)" $using:global:REMOTE_COMMAND 2>&1
     }
@@ -95,7 +93,7 @@ Function Allocate-Resources {
 }
 
 # Process command-line arguments
-if ($args[0] -eq "-V") {
+if ($args[0] -ceq "-V") {
     & $SSH_BINARY $args
 } else {
     $joinedArgs = $args -join " "
@@ -112,21 +110,32 @@ if ($args[0] -eq "-V") {
     
     if ($DEBUGMODE) { Write-Host "PORT: $PORT" }
 
-    $REMOTE_HOST = $args[-2]
+    $REMOTE_HOST = $args[-1]
+
+    if ($REMOTE_HOST -eq "bash") {
+        $REMOTE_HOST = $args[-2]
+    }
+    
     if ($DEBUGMODE) { Write-Host "REMOTE_HOST: $REMOTE_HOST" }
 
     Extract-SSH-Config $REMOTE_HOST
     
     # Before checking $REMOTE_COMMAND, ensure it's been properly tried to be set
     if ($null -ne $REMOTE_COMMAND -and $REMOTE_COMMAND -like "*salloc*") {
-                
-        Allocate-Resources
-
-        if ($DEBUGMODE) {
-            Write-Host "Running commands on remote host"
-            Write-Host $stdin_commands
+        
+        $stdin_commands = $input | Out-String | ForEach-Object { $_ -replace "`r`n", " " }
+        
+        if ($stdin_commands -eq "") {
+            $stdin_commands = "echo 'No commands to run'"
         }
 
+        Allocate-Resources
+
+        # if ($DEBUGMODE) {
+        #     Write-Host "Running commands on remote host"
+        #     Write-Host $stdin_commands
+        # }
+        
         # This is an ssh command that proxy jumps through the remote host to the allocated node and runs srun with:
         # - the --overlap flag which allows job steps to share all resources, 
         # - the --jobid flag which specifies the job id to which the step is associated with,
@@ -139,15 +148,16 @@ if ($args[0] -eq "-V") {
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
 
         & $SSH_BINARY -T -A -i $global:IDENTITYFILE -D $PORT `
-        -o StrictHostKeyChecking=no -o ConnectTimeout=120 `
+        -o StrictHostKeyChecking=no `
         -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
         srun --overlap --jobid $global:JOBID /bin/bash -c `
         "'ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); `
-        pkill -f .WATCHER_VSC_$global:REMOTE_USERNAME.; `
-        (echo `"WATCHER_VSC_$global:REMOTE_USERNAME: `$`$`"; `
+        kill -9 `$(cat .WATCHER_VSC_$global:REMOTE_USERNAME); `
+        (echo `$`$ > .WATCHER_VSC_$global:REMOTE_USERNAME; `
         echo `"watching ppid: `$ssh_pid`"; `
         while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; done; `
-        sleep $SCANCEL_TIMEOUT && scancel $global:JOBID; exit 0) & disown -h && `
+        sleep $SCANCEL_TIMEOUT && scancel $global:JOBID; `
+        rm .WATCHER_VSC_$global:REMOTE_USERNAME; exit 0) & disown -h && `
         exec /bin/bash --login'"
         
     } else {

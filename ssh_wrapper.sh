@@ -160,11 +160,12 @@ else
         srun --overlap --jobid $JOBID /bin/bash -c \
         "'$stdin_commands && \
         ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
-        pkill -f .WATCHER_VSC_$REMOTE_USERNAME.; \
-        (echo \"WATCHER_VSC_$REMOTE_USERNAME: \$\$\"; \
+        kill -9 \$(cat .WATCHER_VSC_$REMOTE_USERNAME); \
+        (echo \$\$ > .WATCHER_VSC_$REMOTE_USERNAME; \
         echo \"watching ppid: \$ssh_pid\"; \
         while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; done; \
-        sleep $SCANCEL_TIMEOUT && scancel $JOBID; exit 0) & disown -h && \
+        sleep $SCANCEL_TIMEOUT && scancel $JOBID; \
+        rm .WATCHER_VSC_$REMOTE_USERNAME; exit 0) & disown -h && \
         exec /bin/bash --login'"
 
     else
