@@ -4,8 +4,14 @@ DEBUGMODE=1
 config_file=".ssh/config"
 SSH_BINARY=$(which ssh)
 SSH_CONFIG_FILE="$HOME/$config_file"
-
 SCANCEL_TIMEOUT=60
+# WATCHER_SETTING can set to either "socket" or "pid" to determine how to watch out for the ssh command to exit.
+# Option: "socket" is the default and watches for the ssh connection to end by watching for the socket file to be deleted.
+# Use "socket" when useLocalServer is set to true. This is because the ssh command is run by the local server and
+# the socket file is deleted when the ssh command exits.
+# Option "pid" uses the SSH_AUTH_SOCK environment variable to get the pid of the ssh connection to then send and scancel.
+# Use "pid" when useLocalServer is set to false. This is because the ssh command exits on the remote server when you close the connection.
+WATCHER_SETTING="socket"
 
 if [[ $DEBUGMODE == 1 ]]; then
     echo "SSH_BINARY: $SSH_BINARY"
@@ -23,11 +29,11 @@ function extract_prefix_and_number {
 function extract_ssh_config {
     # Extract certain values from the ssh config for the remote host
     local host=$1
-    REMOTE_USERNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^user / { print $2 }')
-    HOSTNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^hostname / { print $2 }')
-    REMOTE_COMMAND=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^remotecommand / { $1=""; print $0 }')
-    IDENTITYFILE=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^identityfile / { print $2 }')
-    JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '\-J\s+.*[^\s]+' | awk '{print $2}' )
+    export REMOTE_USERNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^user / { print $2 }')
+    export HOSTNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^hostname / { print $2 }')
+    export REMOTE_COMMAND=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^remotecommand / { $1=""; print $0 }')
+    export IDENTITYFILE=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^identityfile / { print $2 }')
+    export JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '\-J\s+.*[^\s]+' | awk '{print $2}' )
     if [[ $DEBUGMODE == 1 ]]; then
         echo "REMOTE_USERNAME: $REMOTE_USERNAME"
         echo "HOSTNAME: $HOSTNAME"
@@ -81,7 +87,7 @@ function allocate_resources {
     # fi
 
     # Extract the job id
-    JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation [0-9]+" | awk '{print $NF}')
+    export JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation [0-9]+" | awk '{print $NF}')
     if [[ $DEBUGMODE == 1 ]]; then
         echo "JOBID: $JOBID"
     fi
@@ -154,19 +160,48 @@ else
         # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
 
+        # This is an ssh command that proxy jumps through the remote host to the allocated node and runs srun with:
+        # - the --overlap flag which allows job steps to share all resources, 
+        # - the --jobid flag which specifies the job id to which the step is associated with,
+        # and srun runs bash in the job (required for vscode to talk to the remote) that: 
+        # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
+        # - kills any previous watcher processes,
+        # - runs a watcher loop that sleeps for 1 second and checks if the ssh command is still running,
+        # - and if the ssh command is no longer running, it scancels the job and exits.
+        # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
+        # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
+        
+        if [[ "$WATCHER_SETTING" == "socket" ]]; then
+            WATCHER_TEXT="sleep 10; \
+            \$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB && \
+            while [ \$? -eq 0 ]; do sleep 1; \$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB; done;"
+        else
+            WATCHER_TEXT="echo \"watching ppid: \$ssh_pid\"; \
+            N=0; \
+            while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; N=\$N+1; done;"
+        fi
+
+        SRUN_COMMAND="export ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
+            kill -9 \$(head -n 1 \$HOME/.WATCHER_VSC_$REMOTE_USERNAME 2>/dev/null) 2>/dev/null; \
+            export SS_LOC=\$(which ss 2>/dev/null) && \
+            (echo \$\$ > \$HOME/.WATCHER_VSC_$REMOTE_USERNAME; \
+            $WATCHER_TEXT \
+            sleep $SCANCEL_TIMEOUT; \
+            scancel $JOBID; \
+            rm \$HOME/.WATCHER_VSC_$REMOTE_USERNAME; \
+            exit 0;) & disown -h && \
+            exec /bin/bash --login"
+
+        if [[ $DEBUGMODE == 1 ]]; then
+            echo "SRUN_COMMAND: $SRUN_COMMAND"
+        fi
+
         $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $IDENTITYFILE -D $PORT \
         -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
         -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
-        srun --overlap --jobid $JOBID /bin/bash -c \
+        srun --overlap --jobid $JOBID /bin/bash -lc \
         "'$stdin_commands && \
-        ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
-        kill -9 \$(cat .WATCHER_VSC_$REMOTE_USERNAME); \
-        (echo \$\$ > .WATCHER_VSC_$REMOTE_USERNAME; \
-        echo \"watching ppid: \$ssh_pid\"; \
-        while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; done; \
-        sleep $SCANCEL_TIMEOUT && scancel $JOBID; \
-        rm .WATCHER_VSC_$REMOTE_USERNAME; exit 0) & disown -h && \
-        exec /bin/bash --login'"
+        $SRUN_COMMAND'"
 
     else
         # Execute the SSH command normally without resource allocation

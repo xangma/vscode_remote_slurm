@@ -4,6 +4,13 @@ $SSH_BINARY = Get-Command ssh.exe | Select-Object -ExpandProperty Source
 $SSH_CONFIG_FILE = Join-Path $HOME ".ssh\config"
 $DEBUGMODE = $true
 $SCANCEL_TIMEOUT = 60
+# WATCHER_SETTING can set to either "socket" or "pid" to determine how to watch out for the ssh command to exit.
+# Option: "socket" is the default and watches for the ssh connection to end by watching for the socket file to be deleted.
+# Use "socket" when useLocalServer is set to true. This is because the ssh command is run by the local server and
+# the socket file is deleted when the ssh command exits.
+# Option "pid" uses the SSH_AUTH_SOCK environment variable to get the pid of the ssh connection to then send and scancel.
+# Use "pid" when useLocalServer is set to false. This is because the ssh command exits on the remote server when you close the connection.
+$WATCHER_SETTING = "socket"
 
 Function Extract-Prefix-And-Number {
     Param ([string]$str)
@@ -126,7 +133,7 @@ if ($args[0] -ceq "-V") {
         $stdin_commands = $input | Out-String | ForEach-Object { $_ -replace "`r`n", " " }
         
         if ($stdin_commands -eq "") {
-            $stdin_commands = "echo 'No commands to run'"
+            $stdin_commands = "echo `"No commands to run`""
         }
 
         Allocate-Resources
@@ -146,19 +153,36 @@ if ($args[0] -ceq "-V") {
         # - and if the ssh command is no longer running, it scancels the job and exits.
         # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
+        
+        if ($WATCHER_SETTING -eq "socket") {
+            $WATCHER_TEXT="sleep 10; `
+            `$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB && `
+            while [ `$? -eq 0 ]; do sleep 1; `$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB; done;"
+        } else {
+            $WATCHER_TEXT="echo `"watching ppid: `$ssh_pid`"; `
+            N=0; `
+            while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; N=`$N+1; done;"
+        }
+        
+        $SRUN_COMMAND="ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); `
+            kill -9 `$(head -n 1 `$HOME/.WATCHER_VSC_$global:REMOTE_USERNAME 2>/dev/null) 2>/dev/null; `
+            export SS_LOC=`$(which ss 2>/dev/null) && `
+            (echo `$`$ > `$HOME/.WATCHER_VSC_$global:REMOTE_USERNAME; `
+            $WATCHER_TEXT `
+            sleep $SCANCEL_TIMEOUT; `
+            scancel $global:JOBID; `
+            rm `$HOME/.WATCHER_VSC_$global:REMOTE_USERNAME; `
+            exit 0;) & disown -h && `
+            exec /bin/bash --login"
 
-        & $SSH_BINARY -T -A -i $global:IDENTITYFILE -D $PORT `
+        if ($DEBUGMODE) {
+            Write-Host "'$SRUN_COMMAND'"
+        }
+
+        & $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $global:IDENTITYFILE -D $PORT `
         -o StrictHostKeyChecking=no `
         -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
-        srun --overlap --jobid $global:JOBID /bin/bash -c `
-        "'ssh_pid=`$(echo `$SSH_AUTH_SOCK | cut -d`".`" -f2); `
-        kill -9 `$(cat .WATCHER_VSC_$global:REMOTE_USERNAME); `
-        (echo `$`$ > .WATCHER_VSC_$global:REMOTE_USERNAME; `
-        echo `"watching ppid: `$ssh_pid`"; `
-        while kill -0 `$ssh_pid 2>/dev/null; do sleep 1; done; `
-        sleep $SCANCEL_TIMEOUT && scancel $global:JOBID; `
-        rm .WATCHER_VSC_$global:REMOTE_USERNAME; exit 0) & disown -h && `
-        exec /bin/bash --login'"
+        srun --overlap --jobid $global:JOBID /bin/bash -lc "'$SRUN_COMMAND'"
         
     } else {
         if ($DEBUGMODE) {
