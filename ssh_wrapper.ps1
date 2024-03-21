@@ -3,7 +3,7 @@
 $SSH_BINARY = Get-Command ssh.exe | Select-Object -ExpandProperty Source
 $SSH_CONFIG_FILE = Join-Path $HOME ".ssh\config"
 $DEBUGMODE = $true
-$SCANCEL_TIMEOUT = 60
+$SCANCEL_TIMEOUT = 300
 # WATCHER_SETTING can set to either "socket" or "pid" to determine how to watch out for the ssh command to exit.
 # Option: "socket" is the default and watches for the ssh connection to end by watching for the socket file to be deleted.
 # Use "socket" when useLocalServer is set to true. This is because the ssh command is run by the local server and
