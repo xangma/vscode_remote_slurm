@@ -43,17 +43,6 @@ function extract_ssh_config {
     fi
 }
 
-function cancel_existing_jobs {
-    cmd="squeue -h -u $REMOTE_USERNAME --format=\"%.18i %.50j\" | grep -E $JOB_NAME | awk '{if(\$NR>1)print \$1}' | xargs -r scancel"
-    if [[ $DEBUGMODE == 1 ]]; then
-        echo "Cancelling existing jobs with $JOB_NAME with command $cmd"
-    fi
-    $SSH_BINARY -F $SSH_CONFIG_FILE -q -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $cmd
-    if [[ $DEBUGMODE == 1 ]]; then
-        echo "Cancelled existing jobs"
-    fi
-}
-
 function allocate_resources {
     # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
 
@@ -137,9 +126,6 @@ else
 
         stdin_commands=$(sed "s/'/'\\\\''/g" "$tmpfile")
 
-        # Cancel any existing jobs
-        # cancel_existing_jobs
-
         # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
         allocate_resources
 
@@ -160,17 +146,6 @@ else
         # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
 
-        # This is an ssh command that proxy jumps through the remote host to the allocated node and runs srun with:
-        # - the --overlap flag which allows job steps to share all resources, 
-        # - the --jobid flag which specifies the job id to which the step is associated with,
-        # and srun runs bash in the job (required for vscode to talk to the remote) that: 
-        # - gets the pid of the ssh command from the SSH_AUTH_SOCK environment variable,
-        # - kills any previous watcher processes,
-        # - runs a watcher loop that sleeps for 1 second and checks if the ssh command is still running,
-        # - and if the ssh command is no longer running, it scancels the job and exits.
-        # The disown -h command is used to disown the loop so that it doesn't get killed when the ssh command exits.
-        # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
-        
         if [[ "$WATCHER_SETTING" == "socket" ]]; then
             WATCHER_TEXT="sleep 10; \
             \$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB && \

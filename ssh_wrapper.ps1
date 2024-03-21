@@ -43,17 +43,6 @@ Function Extract-SSH-Config {
     }
 }
 
-Function Cancel-Existing-Jobs {
-    $cmd = "squeue -h -u $global:REMOTE_USERNAME --format=`"%.18i %.50j`" | Select-String $global:JOB_NAME | ForEach-Object { if(\$_ -match '^\d+') {`$matches[0]} } | xargs -r scancel"
-    if ($DEBUGMODE) {
-        Write-Host "Cancelling existing jobs with $global:JOB_NAME with command $cmd"
-    }
-    & $SSH_BINARY -q -i $global:IDENTITYFILE $global:REMOTE_USERNAME@$global:HOSTNAME $cmd
-    if ($DEBUGMODE) {
-        Write-Host "Cancelled existing jobs"
-    }
-}
-
 Function Allocate-Resources {
     # Allocate resources using slurm using salloc (currently defined in ssh_config RemoteCommand - e.g. RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00)
 
