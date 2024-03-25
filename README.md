@@ -4,10 +4,12 @@ Conditionally wraps the ssh command if `salloc` is in the RemoteCommand. Passes 
 This seems to work for Mac + Linux + Windows!
 
 ### Changelog:
-2024-03-01: 
-- Less ssh commands needed to reserve jobs, so connecting is much quicker.
-- Cancelling the job is no longer done when before you connect, and instead, a subprocess is created on the remote host and waits to watch the connection stop on your local machine, and it then sends an scancel command after disconnect. **This only works with the "Use Local Server" option OFF in vscode**.
-
+2024-03-25:  
+Notable changes in this version (cancel-jobs-better):  
+- Whole process requires less ssh connections so connecting is quicker.  
+- Cancels job on window close/disconnect (after `SCANCEL_TIMEOUT` has elapsed).  
+- Reconnects to your job if it finds it running on connecting to the cluster. Say you accidentally closed your vscode window or lost connection, you have `SCANCEL_TIMEOUT` seconds to reconnect before your vscode slurm job is scancelled.  
+  
 ### How I have been able to get this working:  
 - Put the ssh_wrapper.sh script somewhere.
 - Make sure it's executable: `chmod +x ssh_wrapper.sh`
