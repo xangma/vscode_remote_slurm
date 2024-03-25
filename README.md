@@ -44,7 +44,7 @@ These are my Remote SSH settings:
     "remote.SSH.useExecServer": true,
     "remote.SSH.maxReconnectionAttempts": 0,
     "remote.SSH.enableRemoteCommand": true,
-    "remote.SSH.useLocalServer": false,
+    "remote.SSH.useLocalServer": true,
 ```
 
 
