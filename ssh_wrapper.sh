@@ -148,8 +148,8 @@ else
 
         if [[ "$WATCHER_SETTING" == "socket" ]]; then
             WATCHER_TEXT="sleep 10; \
-            \$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB && \
-            while [ \$? -eq 0 ]; do sleep 1; \$SS_LOC -a -p -n | grep code | grep tcp | grep ESTAB; done;"
+            \$SS_LOC -a -p -n -e | grep code | grep tcp | grep ESTAB | grep \$(id -u) && \
+            while [ \$? -eq 0 ]; do sleep 1; \$SS_LOC -a -p -n -e | grep code | grep tcp | grep ESTAB | grep \$(id -u); done;"
         else
             WATCHER_TEXT="echo \"watching ppid: \$ssh_pid\"; \
             N=0; \
