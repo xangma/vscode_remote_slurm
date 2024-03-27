@@ -1,7 +1,15 @@
 # vscode_remote_slurm
 Helper script for executing commands before connecting to vscode remote. This can be used to run vscode remote on the compute node of a slurm cluster.  
 Conditionally wraps the ssh command if `salloc` is in the RemoteCommand. Passes through otherwise.  
+This seems to work for Mac + Linux + Windows!
 
+### Changelog:
+2024-03-25:  
+Notable changes in this version (cancel-jobs-better):  
+- Whole process requires less ssh connections so connecting is quicker.  
+- Cancels job on window close/disconnect (after `SCANCEL_TIMEOUT` has elapsed).  
+- Reconnects to your job if it finds it running on connecting to the cluster. Say you accidentally closed your vscode window or lost connection, you have `SCANCEL_TIMEOUT` seconds to reconnect before your vscode slurm job is scancelled.  
+  
 ### How I have been able to get this working:  
 - Put the ssh_wrapper.sh script somewhere.
 - Make sure it's executable: `chmod +x ssh_wrapper.sh`
@@ -18,9 +26,9 @@ The script:
 - Proxyjumps through the login node and runs bash within the Slurm allocation using srun,
 - Allows vscode to continue to send its commands to the bash shell on the compute node to run the remote server.
 
-
 ### TODO:  
 - Wrap into extension so it runs this script on a button press instead of changing vscode to only use this script for ssh.
+- Check for job already running and reconnect.
 
 
 Notes:
@@ -36,6 +44,7 @@ These are my Remote SSH settings:
     "remote.SSH.useExecServer": true,
     "remote.SSH.maxReconnectionAttempts": 0,
     "remote.SSH.enableRemoteCommand": true,
+    "remote.SSH.useLocalServer": true,
 ```
 
 

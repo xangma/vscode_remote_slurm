@@ -1,0 +1,1 @@
+PowerShell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\Users\xangm\OneDrive\repos\vscode_remote_slurm\ssh_wrapper.ps1' %*" 2>&1
