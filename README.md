@@ -10,12 +10,18 @@ Notable changes in this version (cancel-jobs-better):
 - Cancels job on window close/disconnect (after `SCANCEL_TIMEOUT` has elapsed).  
 - Reconnects to your job if it finds it running on connecting to the cluster. Say you accidentally closed your vscode window or lost connection, you have `SCANCEL_TIMEOUT` seconds to reconnect before your vscode slurm job is scancelled.  
   
+### Requirements
+- Key to be added to ssh-agent so agent forwarding works.
+- The defined host in the ssh config must not be using Control Sockets.
+
 ### How I have been able to get this working:  
 - Put the ssh_wrapper.sh script somewhere.
 - Make sure it's executable: `chmod +x ssh_wrapper.sh`
-- Change vscode to run this instead of your default ssh binary.
+- Change vscode to run this instead of your default ssh binary (ctrl + shift + p -> Remote-SSH: Settings -> Remote.SSH: Path: `/full/path/to/ssh_wrapper.sh`)
 - Create a host entry in your ssh_config (example below) with a RemoteCommand detailing your resources.
 - Hope it works?
+
+
 
 ### How it works
 The script:
@@ -45,6 +51,8 @@ These are my Remote SSH settings:
     "remote.SSH.maxReconnectionAttempts": 0,
     "remote.SSH.enableRemoteCommand": true,
     "remote.SSH.useLocalServer": true,
+    "remote.SSH.localServerDownload": "off",
+    "remote.SSH.path": "/full/path/to/ssh_wrapper.sh",
 ```
 
 

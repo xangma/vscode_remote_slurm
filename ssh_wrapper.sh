@@ -147,7 +147,7 @@ else
         # The $stdin_commands are then executed and the shell is replaced with a new (login) shell using exec.
 
         if [[ "$WATCHER_SETTING" == "socket" ]]; then
-            WATCHER_TEXT="sleep 10; \
+            WATCHER_TEXT="sleep 120; \
             \$SS_LOC -a -p -n -e | grep code | grep tcp | grep ESTAB | grep \$(id -u) && \
             while [ \$? -eq 0 ]; do sleep 1; \$SS_LOC -a -p -n -e | grep code | grep tcp | grep ESTAB | grep \$(id -u); done;"
         else
