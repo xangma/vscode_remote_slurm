@@ -68,7 +68,7 @@ function allocate_resources {
     # The end part that looks like someone mashed their keyboard came from this SO post:
     # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
 
-    { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
+    { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
     # if [[ $DEBUGMODE == 1 ]]; then
     #     echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
@@ -98,8 +98,17 @@ else
     # Extract the port number from vscode's ssh args.
     PORT=$(echo "$@" | grep -oE -- '-D\s[0-9]+' | awk '{print $2}' )
 
+    # Extract the connection timeout from vscode's ssh args.
+    CONNECT_TIMEOUT=$(echo "$@" | grep -oE -- '-o ConnectTimeout=[0-9]+' | awk -F= '{print $2}' )
+
+    if [ -z "$CONNECT_TIMEOUT" ]; then
+        CONNECT_TIMEOUT=120 # Set your default value here
+    fi
+    export CONNECT_TIMEOUT
+
     if [[ $DEBUGMODE == 1 ]]; then
         echo "PORT: $PORT"
+        echo "CONNECT_TIMEOUT: $CONNECT_TIMEOUT"
     fi
 
     # Extract the remote host too
@@ -172,7 +181,7 @@ else
         fi
 
         $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $IDENTITYFILE -D $PORT \
-        -o StrictHostKeyChecking=no -o ConnectTimeout=120 \
+        -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT \
         -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
         srun --overlap --jobid $JOBID /bin/bash -lc \
         "'$stdin_commands && \

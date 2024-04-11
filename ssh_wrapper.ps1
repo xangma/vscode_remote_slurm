@@ -61,7 +61,7 @@ Function Allocate-Resources {
     fi; >&2 echo `"NODE: `$(squeue --user=$global:REMOTE_USERNAME --name=$global:JOB_NAME --states=R -h -O Nodelist | awk '{print `$1}')`""
 
     $execCmd = {
-        & $using:SSH_BINARY -i $using:global:IDENTITYFILE "$($using:global:REMOTE_USERNAME)@$($using:global:HOSTNAME)" $using:global:REMOTE_COMMAND 2>&1
+        & $using:SSH_BINARY -o StrictHostKeyChecking=no -o ConnectTimeout=$using:global:CONNECT_TIMEOUT -i $using:global:IDENTITYFILE "$($using:global:REMOTE_USERNAME)@$($using:global:HOSTNAME)" $using:global:REMOTE_COMMAND 2>&1
     }
 
     # Start the command and store the job object
@@ -95,6 +95,8 @@ if ($args[0] -ceq "-V") {
     $joinedArgs = $args -join " "
     $portPattern = '-D\s[0-9]+'
     $portMatches = Select-String -InputObject $joinedArgs -Pattern $portPattern -AllMatches
+    $conntimeoutPattern = 'ConnectTimeout=\d+'
+    $conntimeoutMatches = Select-String -InputObject $joinedArgs -Pattern $conntimeoutPattern -AllMatches
     
     # Check if we found any matches before proceeding
     if ($portMatches -and $portMatches.Matches.Count -gt 0) {
@@ -103,8 +105,15 @@ if ($args[0] -ceq "-V") {
         # Default action or handling if no matches are found
         $PORT = $null
     }
+
+    $global:CONNECT_TIMEOUT = ""
+    if ($conntimeoutMatches -and $conntimeoutMatches.Matches.Count -gt 0) {
+        $global:CONNECT_TIMEOUT = $conntimeoutMatches.Matches[0].Value.Split('=')[1]
+    } else {
+        $global:CONNECT_TIMEOUT = 120
+    }
     
-    if ($DEBUGMODE) { Write-Host "PORT: $PORT" }
+    if ($DEBUGMODE) { Write-Host "string: $joinedArgs"; "PORT: $PORT"; Write-Host "CONNECT_TIMEOUT: $CONNECT_TIMEOUT"}
 
     $REMOTE_HOST = $args[-1]
 
@@ -169,7 +178,7 @@ if ($args[0] -ceq "-V") {
         }
 
         & $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $global:IDENTITYFILE -D $PORT `
-        -o StrictHostKeyChecking=no `
+        -o StrictHostKeyChecking=no -o ConnectTimeout=$global:CONNECT_TIMEOUT`
         -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
         srun --overlap --jobid $global:JOBID /bin/bash -lc "'$SRUN_COMMAND'"
         
