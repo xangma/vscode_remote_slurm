@@ -15,9 +15,17 @@ Notable changes in this version (cancel-jobs-better):
 - The defined host in the ssh config must not be using Control Sockets.
 
 ### How I have been able to get this working:  
+## Linux/macOS
 - Put the ssh_wrapper.sh script somewhere.
 - Make sure it's executable: `chmod +x ssh_wrapper.sh`
 - Change vscode to run this instead of your default ssh binary (ctrl + shift + p -> Remote-SSH: Settings -> Remote.SSH: Path: `/full/path/to/ssh_wrapper.sh`)
+- Create a host entry in your ssh_config (example below) with a RemoteCommand detailing your resources.
+- Hope it works?
+
+## Windows
+- Put the ssh_wrapper.ps1 script somewhere.
+- Put that location in the ssh.bat file (the default location is currently set to be ~\ssh_wrapper.ps1 in the ssh.bat file)
+- Change vscode to run ssh.bat instead of your default ssh binary (ctrl + shift + p -> Remote-SSH: Settings -> Remote.SSH: Path: `/full/path/to/ssh.bat`)
 - Create a host entry in your ssh_config (example below) with a RemoteCommand detailing your resources.
 - Hope it works?
 
@@ -52,7 +60,7 @@ These are my Remote SSH settings:
     "remote.SSH.enableRemoteCommand": true,
     "remote.SSH.useLocalServer": true,
     "remote.SSH.localServerDownload": "off",
-    "remote.SSH.path": "/full/path/to/ssh_wrapper.sh",
+    "remote.SSH.path": "/full/path/to/ssh_wrapper.sh", # or ssh.bat on windows
 ```
 
 
@@ -63,8 +71,10 @@ Host remotehost
   RequestTTY yes
   ForwardAgent yes
   IdentityFile /path/to/sshkey
-  RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode --time=1:00:00
+  RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode_UNIQUE_JOBNAME --time=24:00:00
   User remoteusername
 ```
+  
+I have put the jobname as vscode_UNIQUE_JOBNAME so that the script can find the single job to cancel if you disconnect.
 
 Connect and hopefully it works.
