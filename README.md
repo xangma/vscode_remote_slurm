@@ -23,6 +23,7 @@ Notable changes in this version (cancel-jobs-better):
 - Hope it works?
 
 ## Windows
+- Ensure the Openssh Agent Service is installed and running (or use pageant), and add your key to ssh-agent: `ssh-add /path/to/your/key` (I have also had issues where the key has to be in the top 6 keys in the ssh-agent :shrug: It seems IdentitiesOnly isn't being respected???)
 - Put the ssh_wrapper.ps1 script somewhere.
 - Put that location in the ssh.bat file (the default location is currently set to be ~\ssh_wrapper.ps1 in the ssh.bat file)
 - Change vscode to run ssh.bat instead of your default ssh binary (ctrl + shift + p -> Remote-SSH: Settings -> Remote.SSH: Path: `/full/path/to/ssh.bat`)
