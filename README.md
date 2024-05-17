@@ -79,3 +79,11 @@ Host remotehost
 I have put the jobname as vscode_UNIQUE_JOBNAME so that the script can find the single job to cancel if you disconnect.
 
 Connect and hopefully it works.
+
+### Troubleshooting:
+- If you get an error about the ssh key not being found, make sure you have added it to the ssh-agent: `ssh-add /path/to/your/key`
+- Check the script is executable: `chmod +x ssh_wrapper.sh`
+- Check the ssh_config is correct and the RemoteCommand is correct.
+- Remove the ~/.vscode-server on remotehost if you are having issues with the vscode server not starting.
+- Kill the vscode server on remotehost if you are having issues with the vscode server not starting: `pkill -f vscode-server` (or by using ctrl + shift + p -> Remote-SSH: Kill VS Code Server on Host... -> remotehost)
+- Kill the vscode server on your local machine if you are having issues with the vscode server not starting: `pkill -f vscode-server` (or by using ctrl + shift + p -> Remote-SSH: Kill VS Code Server on Host... -> local)
