@@ -178,7 +178,7 @@ if ($args[0] -ceq "-V") {
         }
 
         & $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $global:IDENTITYFILE -D $PORT `
-        -o StrictHostKeyChecking=no -o ConnectTimeout=$global:CONNECT_TIMEOUT`
+        -o StrictHostKeyChecking=no -o ConnectTimeout=$global:CONNECT_TIMEOUT `
         -J "$global:REMOTE_USERNAME@$global:HOSTNAME" "$global:REMOTE_USERNAME@$global:NODE" `
         srun --overlap --jobid $global:JOBID /bin/bash -lc "'$SRUN_COMMAND'"
         
