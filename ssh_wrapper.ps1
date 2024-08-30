@@ -32,7 +32,9 @@ Function Extract-SSH-Config {
     $global:HOSTNAME = & $SSH_BINARY -G $remoteHost | Select-String "^hostname " | ForEach-Object { $_ -replace "^hostname ", "" }
     $global:REMOTE_COMMAND = & $SSH_BINARY -G $remoteHost | Select-String "^remotecommand " | ForEach-Object { $_ -replace "^remotecommand ", "" }
     $global:IDENTITYFILE = & $SSH_BINARY -G $remoteHost | Select-String "^identityfile " | ForEach-Object { $_ -replace "^identityfile ", "" }
-    $global:JOB_NAME = ($global:REMOTE_COMMAND -split "-J ")[1].Split(" ")[0]
+    if ($null -ne $global:REMOTE_COMMAND -and $global:REMOTE_COMMAND.Contains("-J ")) {
+        $global:JOB_NAME = ($global:REMOTE_COMMAND -split "-J ")[1].Split(" ")[0]
+    }
 
     if ($DEBUGMODE) {
         Write-Host "REMOTE_USERNAME: $global:REMOTE_USERNAME"
